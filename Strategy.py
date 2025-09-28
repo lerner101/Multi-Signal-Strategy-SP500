@@ -20,19 +20,19 @@ class StrategyConfig:
     """
     To ensure all strategies follows the same constraint
     """
-    initial_cash = 1000000
-    act_on_prev_signal = True  # so WE NEED to shift(1)
-    max_sell_per_tick = 1
-    max_buy_per_tick = 1  # “Only 1 share per buy signal”
-    price_col= "Close"
+    initial_cash: float = 1000000
+    act_on_prev_signal: bool = True  # so WE NEED to shift(1)
+    max_sell_per_tick: int = 1
+    max_buy_per_tick: int = 1  # “Only 1 share per buy signal”
+    price_col: str = "Close"
 
-    data_dir = "sp500_adj_close" # for us to pull data later
+    data_dir: str = "sp500_adj_close" # for us to pull data later
 
 class Strategy(ABC):
     """
     Base class. child strategies only need to implement `compute_signals(prices)`.
     - prices is a (T×N) DataFrame: index=Date, columns=tickers, values=Close.
-    - signals in {0,1} cuz buy only
+    - signals in {-1, 0, 1} but we can never go short
     """
 
     def __init__(self, name: str, config: Optional[StrategyConfig] = None):
