@@ -55,9 +55,10 @@ class MovingAverageStrategy(Strategy):
     data = {}
     for t in tickers:
         arr = valid[t]
-        data[t] = arr[-T:]  # right-align on most recent
+        data[t] = arr[-T:]  #most recent
 
     prices = pd.DataFrame(data, columns=tickers)  # shape (T, N)
+    #print(prices)
 
     # Save metadata
     self.tickers = tickers

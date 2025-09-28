@@ -1,12 +1,14 @@
+import pandas as pd
+from Strategy import Strategy   # or: from .strategy_base import Strategy
 import numpy as np
 from PriceLoader import get_prices
 
-class Benchmark:
-    """
-    For each ticker: emit a column vector [1, 0, 0, 0, ...] of length T.
-    - No sells are generated here.
-    """
-    def __init__(self, min_points_per_ticker: int = 2500, buy_index: int = 0):
+
+class BenchmarkStrategy(Strategy):
+  """
+  Buy just at beginning
+  """
+  def __init__(self, min_points_per_ticker: int = 2500, buy_index: int = 0):
         """
         min_points_per_ticker: filter tickers that have fewer points.
         buy_index: row index at which to place the '1' (default 0).
@@ -17,37 +19,44 @@ class Benchmark:
         self.T = None        # time length
         self.N = None        # number of tickers
 
-    def _build_price_matrix(self, ticker_dict: dict):
-        """
-        Truncate all series to the shortest length so they align by index.
-        Returns (tickers, T, N) but NOT the prices (kept out for simplicity).
-        """
-        # Clean & filter
-        valid = {}
-        for t, p in ticker_dict.items():
-            if p:  # skip empty lists
-                cleaned = []
-                for x in p:
-                    if x is not None:
-                        cleaned.append(float(x))
-                if len(cleaned) >= self.min_points_per_ticker:
-                    valid[t] = cleaned
+  def compute_signals(self, ticker_dict: dict) -> pd.DataFrame:
 
-        if not valid:
-            raise ValueError(f"No tickers with >= {self.min_points_per_ticker} prices.")
+    # Clean & filter (mirrors _build_price_matrix but we also keep cleaned data)
+    valid = {}
+    for t, p in ticker_dict.items():
+        if not p:
+            continue
+        cleaned = [float(x) for x in p if x is not None]
+        if len(cleaned) >= self.min_points_per_ticker:
+            valid[t] = cleaned
 
-        tickers = sorted(valid.keys())
-        min_len = min(len(valid[t]) for t in tickers)  # common T
-        return tickers, min_len, len(tickers)
+    if not valid:
+        raise ValueError(f"No tickers with >= {self.min_points_per_ticker} prices.")
 
-    def generate_signals(self, ticker_dict: dict) -> np.ndarray:
-        """
-        Returns S with shape (T, N): for every column (ticker), S[buy_index, j] = 1, else 0.
-        """
-        self.tickers, self.T, self.N = self._build_price_matrix(ticker_dict)
-        if not (0 <= self.buy_index < self.T):
-            raise ValueError(f"buy_index {self.buy_index} out of range for T={self.T}")
+    tickers = sorted(valid.keys())
+    # Common time length (right-aligned on most recent data)
+    T = min(len(valid[t]) for t in tickers)
 
-        S = np.zeros((self.T, self.N), dtype=int)
-        S[self.buy_index, :] = 1
-        return S
+    # Build aligned price matrix (most recent T points for each ticker)
+    data = {}
+    for t in tickers:
+        arr = valid[t]
+        data[t] = arr[-T:]  #most recent
+
+    prices = pd.DataFrame(data, columns=tickers)  # shape (T, N)
+    #print(prices)
+
+    # Save metadata
+    self.tickers = tickers
+    self.T = T
+    self.N = len(tickers)
+
+    
+    # Signals: +1 (buy) if MA20 > MA50, -1 (sell) if MA20 < MA50, else 0
+    signals = pd.DataFrame(0, index=prices.index, columns=prices.columns, dtype=int)
+    signals.iloc[self.buy_index, :] = 1
+    return signals
+
+
+prices = get_prices()
+print(BenchmarkStrategy().compute_signals(prices))
