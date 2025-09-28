@@ -64,3 +64,13 @@
 
 
 
+# SIMPLE TEST CASE JUST AS AN EXAMPLE
+from MovingAverageStrategy import MovingAverageStrategy
+
+strat = MovingAverageStrategy(name="MA20_50")
+# single ticker
+res = strat.run_from_tickers("AAPL")
+print(res[["Cash","TotalAssets"]].tail())
+
+# multiple tickers
+# res = strat.run_from_tickers(["AAPL", "MSFT", "NVDA"])

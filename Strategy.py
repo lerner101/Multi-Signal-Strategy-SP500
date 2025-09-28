@@ -1,9 +1,9 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 import numpy as np
 import pandas as pd
-from __future__ import annotations
 from pathlib import Path
 
 # NOTE: My thoughts
@@ -22,9 +22,8 @@ class StrategyConfig:
     """
     initial_cash = 1000000
     act_on_prev_signal = True  # so WE NEED to shift(1)
-
-    max_buy_per_tick = 1  # “Only 1 share per buy signal”
     max_sell_per_tick = 1
+    max_buy_per_tick = 1  # “Only 1 share per buy signal”
     price_col= "Close"
 
     data_dir = "sp500_adj_close" # for us to pull data later
@@ -49,7 +48,7 @@ class Strategy(ABC):
     def compute_signals(self, prices: pd.DataFrame) -> pd.DataFrame:
         """
         Return a (T×N) DataFrame of signals, aligned to `prices` df
-        with integer values in {0,1}. 1 means buy share next day, 0 means do nothing
+        with integer values in {-1, 0,1}. 1 means buy share next day, 0 means do nothing, -1 sell
         """
         ...
 
@@ -79,7 +78,7 @@ class Strategy(ABC):
         S_raw = (self.compute_signals(P)
                    .reindex_like(P)
                    .fillna(0)
-                   .clip(lower=0, upper=1)
+                   .clip(lower=-1, upper=1)
                    .astype(int))
 
         # Act on previous day's signal if requested
@@ -98,17 +97,37 @@ class Strategy(ABC):
         h_prev = np.zeros(N, dtype=int)
 
         for t in range(T):
-            # cap to 1 share per day per ticker
-            desire = np.minimum(Sig[t], self.config.max_buy_per_day)  # {0,1}
+            # desired change per ticker for day t in {-1,0,1}
+            desire = Sig[t].clip(-1, 1)
 
-            # buy only if we can afford 1 share at today's close
-            buy_idx = np.flatnonzero(desire == 1)
+            # cap per-day size
+            pos = desire > 0
+            neg = desire < 0
+            desire[pos] = np.minimum(desire[pos], self.config.max_buy_per_tick)  # 0 or 1
+            desire[neg] = -np.minimum(-desire[neg], self.config.max_sell_per_tick)  # 0 or -1
+
+            # lower-bound desire by -h_prev for the negative side, dont let holdings go negative NO SHORTS
+            desire = np.maximum(desire, -h_prev)
+
+            px = Px[t].astype(float)
+
+            # Sells first
+            sell_idx = np.flatnonzero(desire < 0)
+            if sell_idx.size:
+                qty = -desire[sell_idx]  # positive integers
+                proceeds = (qty * px[sell_idx]).sum()
+                cash_t += proceeds
+                h_prev[sell_idx] -= qty
+                trades[t, sell_idx] = -qty  # negative trades recorded
+
+            #  Then buys
+            buy_idx = np.flatnonzero(desire > 0)
             for j in buy_idx:
-                px = float(Px[t, j])
-                if px <= cash_t:
-                    cash_t -= px
+                cost = px[j]
+                if cost <= cash_t:
+                    cash_t -= cost
                     h_prev[j] += 1
-                    trades[t, j] = 1  # actually executed
+                    trades[t, j] = 1
 
             holdings[t] = h_prev
             cash[t] = cash_t
@@ -131,7 +150,7 @@ class Strategy(ABC):
         out.attrs["config"] = self.config
         return out
 
-    # ---- CSV loader for your exact schema ----
+    # CSV loader for your exact schema, only works for the way we pulled data fyi
     def _load_prices(self, tickers):
         """
         Reads sp500_adj_close/{ticker}.csv with columns: Date,Close. This follows curr format from data pulled
