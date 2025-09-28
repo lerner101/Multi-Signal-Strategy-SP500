@@ -23,11 +23,16 @@ class Benchmark:
         Returns (tickers, T, N) but NOT the prices (kept out for simplicity).
         """
         # Clean & filter
-        valid = {
-            t: [float(x) for x in p if x is not None]
-            for t, p in ticker_dict.items()
-            if p and len([x for x in p if x is not None]) >= self.min_points_per_ticker
-        }
+        valid = {}
+        for t, p in ticker_dict.items():
+            if p:  # skip empty lists
+                cleaned = []
+                for x in p:
+                    if x is not None:
+                        cleaned.append(float(x))
+                if len(cleaned) >= self.min_points_per_ticker:
+                    valid[t] = cleaned
+
         if not valid:
             raise ValueError(f"No tickers with >= {self.min_points_per_ticker} prices.")
 
