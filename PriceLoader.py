@@ -67,3 +67,34 @@ class PriceLoader:
 #                                out_dir="sp500_adj_close", batch_size=40, adjusted=True)
 
 
+def get_prices():
+    folder = "sp500_adj_close"
+
+    all_prices = []       # master list of all prices
+    ticker_dict = {}      # ticker -> list of prices
+
+    # loop through every file in folder
+    for filename in os.listdir(folder):
+        if filename.endswith(".csv"):
+            ticker = filename.replace(".csv", "")  # assume filename = "AAPL.csv"
+            filepath = os.path.join(folder, filename)
+
+            df = pd.read_csv(filepath)
+
+            # check if there's an "Adj Close" column
+            if "Close" in df.columns:
+                prices = df["Close"].dropna().tolist()
+            else:
+                raise ValueError(f"No 'Close' column found in {filename}")
+
+            ticker_dict[ticker] = prices
+            all_prices.extend(prices)
+    
+
+    print("Number of tickers:", len(ticker_dict))
+    print("Total prices collected:", len(all_prices))
+    return ticker_dict
+
+
+
+
