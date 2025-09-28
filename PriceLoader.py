@@ -67,33 +67,46 @@ class PriceLoader:
 #                                out_dir="sp500_adj_close", batch_size=40, adjusted=True)
 
 
-def get_prices():
-    folder = "sp500_adj_close"
+def get_prices(folder="sp500_adj_close", MIN_TRADING_DAYS=8 * 252):
+    """
+    Gets all ticker price data individually from sp_500_adj_close foolder and concats them into a df
+    Returns P, df of close prices whereby rows are times series columns are tickers
+    They all meet MIN_TRAINING_DAYS req.
+    """
+    folder = Path(folder) # turn into path
 
-    all_prices = []       # master list of all prices
-    ticker_dict = {}      # ticker -> list of prices
+    frames = [] # array to store all df
+    kept = [] # array to keep ticker names
 
     # loop through every file in folder
-    for filename in os.listdir(folder):
-        if filename.endswith(".csv"):
-            ticker = filename.replace(".csv", "")  # assume filename = "AAPL.csv"
-            filepath = os.path.join(folder, filename)
+    for filename in folder.iterdir():
+        if filename.suffix == ".csv":
+            ticker = filename.stem # get ticker
+            path = filename
 
-            df = pd.read_csv(filepath)
+            # check if csv file exists
+            if not path.exists():
+                raise FileNotFoundError(f"Missing file: {path}")
 
-            # check if there's an "Adj Close" column
-            if "Close" in df.columns:
-                prices = df["Close"].dropna().tolist()
-            else:
-                raise ValueError(f"No 'Close' column found in {filename}")
+            # read csv file
+            df = pd.read_csv(path, parse_dates=["Date"], usecols=["Date", "Close"])
+            df = df.dropna(subset=["Close"]).set_index("Date").sort_index()
 
-            ticker_dict[ticker] = prices
-            all_prices.extend(prices)
-    
+            # Ignore tickers with less than min data
+            if len(df) < MIN_TRADING_DAYS:
+                continue
 
-    print("Number of tickers:", len(ticker_dict))
-    print("Total prices collected:", len(all_prices))
-    return ticker_dict
+            # store valid ticker data into the arrays
+            df = df.rename(columns={"Close": ticker})[[ticker]]
+            frames.append(df)
+            kept.append(ticker)
+
+    # concat price series into one df
+    P = pd.concat(frames, axis=1, join="inner").astype(float)
+
+    print("Number of tickers:", P.shape[1])
+    print("Total prices collected:", P.shape[0])
+    return P
 
 
 

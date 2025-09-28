@@ -90,12 +90,14 @@ class Strategy(ABC):
         Sig = S_exec.values
 
         holdings = np.zeros((T, N), dtype=int)
-        trades   = np.zeros((T, N), dtype=int)
-        cash     = np.zeros(T, dtype=float)
+        trades = np.zeros((T, N), dtype=int)
+        cash = np.zeros(T, dtype=float)
 
         cash_t = float(self.config.initial_cash)
         h_prev = np.zeros(N, dtype=int)
 
+        # Loop over each day, so we can check cash constraints, holding constraints,per day caps,
+        # executions, mark-to-market
         for t in range(T):
             # desired change per ticker for day t in {-1,0,1}
             desire = Sig[t].clip(-1, 1)
@@ -111,7 +113,7 @@ class Strategy(ABC):
 
             px = Px[t].astype(float)
 
-            # Sells first
+            # Sells first (IN CASE WE NEED TO FREE UP CASH FOR OTHER BUYS)
             sell_idx = np.flatnonzero(desire < 0)
             if sell_idx.size:
                 qty = -desire[sell_idx]  # positive integers

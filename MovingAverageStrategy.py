@@ -82,5 +82,5 @@ class MovingAverageStrategy(Strategy):
 
 
 prices = get_prices()
-
-print(MovingAverageStrategy().compute_signals(prices))
+print(prices)
+# print(MovingAverageStrategy().compute_signals(prices))
