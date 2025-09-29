@@ -67,7 +67,7 @@ class PriceLoader:
 #                                out_dir="sp500_adj_close", batch_size=40, adjusted=True)
 
 
-def get_prices(folder="sp500_adj_close", MIN_TRADING_DAYS=8 * 252):
+def get_prices(folder="sp500_adj_close", MIN_TRADING_DAYS= 10 * 252):
     """
     Gets all ticker price data individually from sp_500_adj_close foolder and concats them into a df
     Returns P, df of close prices whereby rows are times series columns are tickers
