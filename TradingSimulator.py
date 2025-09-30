@@ -56,7 +56,6 @@ class Simulator:
                 if n > 0 and self.cash > 0:
                     per_name_budget = self.cash / n
                     # buy floor(per_name_budget / price) shares for each (>=0)
-                    # do it in two passes to ensure cash doesn’t drift negative due to rounding
                     for t in to_buy:
                         px = px_row[t]
                         if px > 0:
@@ -93,7 +92,7 @@ class Simulator:
         trade_log = pd.DataFrame([t.__dict__ for t in trades])
 
         return {
-            "equity": equity,           # <-- this is your total-portfolio equity curve
+            "equity": equity,           
             "trade_log": trade_log,
             "final_cash": self.cash,
             "final_positions": positions
