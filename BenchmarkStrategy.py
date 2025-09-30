@@ -27,6 +27,3 @@ class BenchmarkStrategy(Strategy):
     signals.iloc[self.buy_index, :] = 1
     return signals
 
-
-prices = get_prices()
-print(BenchmarkStrategy().compute_signals(prices))
