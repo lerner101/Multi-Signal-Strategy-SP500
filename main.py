@@ -1,7 +1,8 @@
 
+from PriceLoader import get_prices
 
+ticker_dict = get_prices()
 
-# ticker_dict = get_prices()
 
 
 # # keep only tickers with at least 2 prices
@@ -65,12 +66,20 @@
 
 
 # SIMPLE TEST CASE JUST AS AN EXAMPLE
+'''
 from MovingAverageStrategy import MovingAverageStrategy
 
 strat = MovingAverageStrategy(name="MA20_50")
 # single ticker
 res = strat.run_strategy()
 print(res[["Cash","TotalAssets"]].tail())
+'''
+
+from RSI_Strategy import RSIStrategy
+
+strat = RSIStrategy(name = 'RSI_Strategy')
+print(strat.compute_signals(ticker_dict))
 
 # multiple tickers
 # res = strat.run_from_tickers(["AAPL", "MSFT", "NVDA"])
+
