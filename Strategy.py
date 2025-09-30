@@ -1,10 +1,11 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 import numpy as np
 import pandas as pd
-from __future__ import annotations
 from pathlib import Path
+from PriceLoader import get_prices
 
 # NOTE: My thoughts
 # I wanna standardise 3 things,
@@ -20,20 +21,19 @@ class StrategyConfig:
     """
     To ensure all strategies follows the same constraint
     """
-    initial_cash = 1000000
-    act_on_prev_signal = True  # so WE NEED to shift(1)
+    initial_cash: float = 1000000
+    act_on_prev_signal: bool = True  # so WE NEED to shift(1)
+    max_sell_per_tick: int = 1
+    max_buy_per_tick: int = 1  # “Only 1 share per buy signal”
+    price_col: str = "Close"
 
-    max_buy_per_tick = 1  # “Only 1 share per buy signal”
-    max_sell_per_tick = 1
-    price_col= "Close"
-
-    data_dir = "sp500_adj_close" # for us to pull data later
+    data_dir: str = "sp500_adj_close" # for us to pull data later
 
 class Strategy(ABC):
     """
     Base class. child strategies only need to implement `compute_signals(prices)`.
     - prices is a (T×N) DataFrame: index=Date, columns=tickers, values=Close.
-    - signals in {0,1} cuz buy only
+    - signals in {-1, 0, 1} but we can never go short
     """
 
     def __init__(self, name: str, config: Optional[StrategyConfig] = None):
@@ -49,17 +49,16 @@ class Strategy(ABC):
     def compute_signals(self, prices: pd.DataFrame) -> pd.DataFrame:
         """
         Return a (T×N) DataFrame of signals, aligned to `prices` df
-        with integer values in {0,1}. 1 means buy share next day, 0 means do nothing
+        with integer values in {-1, 0,1}. 1 means buy share next day, 0 means do nothing, -1 sell
         """
         ...
 
     # METHODS
-    def run_from_tickers(self, tickers):
+    def run_strategy(self):
         """
-        Method to pull data and then backtest
-        tickers: List[str] containing ticker names we goonna use
+        Method to pull all clean and avail SP500 data and then run backtest
         """
-        P = self._load_prices(tickers)
+        P = get_prices()
         return self.run(P)
 
     def run(self, prices: pd.DataFrame) -> pd.DataFrame:
@@ -79,7 +78,7 @@ class Strategy(ABC):
         S_raw = (self.compute_signals(P)
                    .reindex_like(P)
                    .fillna(0)
-                   .clip(lower=0, upper=1)
+                   .clip(lower=-1, upper=1)
                    .astype(int))
 
         # Act on previous day's signal if requested
@@ -91,24 +90,46 @@ class Strategy(ABC):
         Sig = S_exec.values
 
         holdings = np.zeros((T, N), dtype=int)
-        trades   = np.zeros((T, N), dtype=int)
-        cash     = np.zeros(T, dtype=float)
+        trades = np.zeros((T, N), dtype=int)
+        cash = np.zeros(T, dtype=float)
 
         cash_t = float(self.config.initial_cash)
         h_prev = np.zeros(N, dtype=int)
 
+        # Loop over each day, so we can check cash constraints, holding constraints,per day caps,
+        # executions, mark-to-market
         for t in range(T):
-            # cap to 1 share per day per ticker
-            desire = np.minimum(Sig[t], self.config.max_buy_per_day)  # {0,1}
+            # desired change per ticker for day t in {-1,0,1}
+            desire = Sig[t].clip(-1, 1)
 
-            # buy only if we can afford 1 share at today's close
-            buy_idx = np.flatnonzero(desire == 1)
+            # cap per-day size
+            pos = desire > 0
+            neg = desire < 0
+            desire[pos] = np.minimum(desire[pos], self.config.max_buy_per_tick)  # 0 or 1
+            desire[neg] = -np.minimum(-desire[neg], self.config.max_sell_per_tick)  # 0 or -1
+
+            # lower-bound desire by -h_prev for the negative side, dont let holdings go negative NO SHORTS
+            desire = np.maximum(desire, -h_prev)
+
+            px = Px[t].astype(float)
+
+            # Sells first (IN CASE WE NEED TO FREE UP CASH FOR OTHER BUYS)
+            sell_idx = np.flatnonzero(desire < 0)
+            if sell_idx.size:
+                qty = -desire[sell_idx]  # positive integers
+                proceeds = (qty * px[sell_idx]).sum()
+                cash_t += proceeds
+                h_prev[sell_idx] -= qty
+                trades[t, sell_idx] = -qty  # negative trades recorded
+
+            #  Then buys
+            buy_idx = np.flatnonzero(desire > 0)
             for j in buy_idx:
-                px = float(Px[t, j])
-                if px <= cash_t:
-                    cash_t -= px
+                cost = px[j]
+                if cost <= cash_t:
+                    cash_t -= cost
                     h_prev[j] += 1
-                    trades[t, j] = 1  # actually executed
+                    trades[t, j] = 1
 
             holdings[t] = h_prev
             cash[t] = cash_t
@@ -130,29 +151,3 @@ class Strategy(ABC):
         out.attrs["strategy_name"] = self.name
         out.attrs["config"] = self.config
         return out
-
-    # ---- CSV loader for your exact schema ----
-    def _load_prices(self, tickers):
-        """
-        Reads sp500_adj_close/{ticker}.csv with columns: Date,Close. This follows curr format from data pulled
-        Returns a (T×N) df aligned on common dates of given tickers
-        """
-        if isinstance(tickers, str):
-            tickers = [tickers]
-        dir_ = Path(self.config.data_dir)
-
-        frames = []
-        for t in tickers:
-            path = dir_ / f"{t}.csv"
-            if not path.exists():
-                raise FileNotFoundError(f"Missing file: {path}")
-            df = pd.read_csv(path, parse_dates=["Date"], usecols=["Date", self.config.price_col])
-            df = (df.dropna()
-                    .set_index("Date")
-                    .sort_index()
-                    .rename(columns={self.config.price_col: t}))
-            frames.append(df)
-
-        # Keep only the dates present for all tickers (inner join)
-        P = pd.concat(frames, axis=1, join="inner").astype(float)
-        return P
