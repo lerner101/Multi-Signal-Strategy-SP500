@@ -65,12 +65,32 @@
 
 
 # SIMPLE TEST CASE JUST AS AN EXAMPLE
-from MovingAverageStrategy import MovingAverageStrategy
+# from MovingAverageStrategy import MovingAverageStrategy
 
-strat = MovingAverageStrategy(name="MA20_50")
+# strat = MovingAverageStrategy(name="MA20_50")
 # single ticker
-res = strat.run_strategy()
-print(res[["Cash","TotalAssets"]].tail())
+# res = strat.run_strategy()
+# print(res[["Cash","TotalAssets"]].tail())
 
 # multiple tickers
 # res = strat.run_from_tickers(["AAPL", "MSFT", "NVDA"])
+
+
+from PriceLoader import get_prices
+from MACDStrategy import MACDStrategy
+
+strat = MACDStrategy()
+P_all = get_prices()
+
+# --- single ticker ---
+res_single = strat.run(P_all[["AAPL"]])
+print("Single Ticker (AAPL)")
+print(res_single[["Cash", "TotalAssets"]].tail())
+
+# --- multiple tickers ---
+res_multi = strat.run(P_all[["AAPL", "MSFT", "NVDA"]])
+print("\nMultiple Tickers (AAPL, MSFT, NVDA)")
+print(res_multi[["Cash", "TotalAssets"]].tail())
+
+
+
