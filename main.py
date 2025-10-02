@@ -65,14 +65,41 @@ ticker_dict = get_prices()
 
 
 
-# SIMPLE TEST CASE JUST AS AN EXAMPLE
-from MovingAverageStrategy import MovingAverageStrategy
+# Example usage with the NEW Simulator
 
-strat = MovingAverageStrategy(name="MA20_50")
-# single ticker
-res = strat.run_strategy()
-print(res[["Cash","TotalAssets"]].tail())
+from PriceLoader import get_prices
+from MACDStrategy import MACDStrategy
+from TradingSimulator import Simulator   # your new Simulator class
+import matplotlib.pyplot as plt
+import pandas as pd
 
-# multiple tickers
-# res = strat.run_from_tickers(["AAPL", "MSFT", "NVDA"])
+# load prices
+prices = get_prices()
+
+strat = MACDStrategy(name="MACD")
+
+# sim back test
+sim = Simulator(strategy=strat, prices=prices, initial_cash=1_000_000)
+res = sim.run()   # <-- returns ONE DataFrame with blocks, not a dict
+
+# results
+final_cash = res["Cash"].iloc[-1]
+final_positions = res["Holdings"].iloc[-1].to_dict()
+equity = res[["Cash", "TotalAssets"]]  # analogous to your old 'equity' dict entry
+
+
+print("Final Cash:", final_cash)
+print("Final Positions:", final_positions)
+print(equity.tail())
+
+# equity curve plots
+plt.figure(figsize=(10, 6))
+plt.plot(equity.index, equity["TotalAssets"], label="Total Assets")
+plt.plot(equity.index, equity["Cash"], label="Cash", linestyle="--")
+plt.title(f"Equity Curve — {res.attrs.get('strategy_name','')}")
+plt.xlabel("Date")
+plt.ylabel("USD")
+plt.legend()
+plt.grid(True)
+plt.show()
 
