@@ -99,7 +99,7 @@ plt.plot(equity.index, equity["cash"], label="Cash", linestyle="--")
 
 plt.title("Equity Curve")
 plt.xlabel("Date")
-plt.ylabel("Value ($)")
+plt.ylabel("Value ($) in Millions")
 plt.legend()
 plt.grid(True)
 plt.show()
