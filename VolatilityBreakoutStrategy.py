@@ -1,7 +1,7 @@
 from Strategy import Strategy
 import pandas as pd
 
-class Volatility_Breakout_Strategy(Strategy):
+class VolatilityBreakoutStrategy(Strategy):
   """
   Signals (executed next day by the base runner):
     +1  -> BUY one share when daily return > roll 20d STD
@@ -15,9 +15,10 @@ class Volatility_Breakout_Strategy(Strategy):
     self.N = None       # no of tickers
 
   def compute_signals(self, prices) -> pd.DataFrame:
-    std20 = prices.rolling(window = 20, min_periods=20).std()
     rets = prices.pct_change()
-    signals = pd.DataFrame(0,index = prices.index, columns= prices.columns)
+    std20 = rets.rolling(window = 20, min_periods=20).std()
+
+    signals = pd.DataFrame(0, index = prices.index, columns= prices.columns)
     signals[rets > std20] = 1
     signals[rets < -std20] = -1
 
