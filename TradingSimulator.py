@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from dataclasses import dataclass
 from BenchmarkStrategy import BenchmarkStrategy
 from MovingAverageStrategy import MovingAverageStrategy
@@ -10,96 +11,103 @@ from dataclasses import dataclass
 import math
 
 class Simulator:
-    def __init__(self, cash, strategy: str, prices: pd.DataFrame, signals: pd.DataFrame):
+    """
+    Execute a backtest using the exact logic that was in Strategy.run(),
+    but with hard-coded rules:
+      - act on previous day's signal
+      - max 1 share per ticker per day (buy/sell)
+      - no shorts
+    """
+
+    def __init__(self, strategy, prices: pd.DataFrame, initial_cash: float = 1_000_000):
+        self.strategy = strategy
+        self.prices = prices
+        self.initial_cash = float(initial_cash)
+
+    def run(self) -> pd.DataFrame:
         """
-        prices: DataFrame indexed by date, columns = tickers, values = prices
-        signals: DataFrame aligned with prices (same index/columns), values in {-1,0,1}
+        Backtesting. This is hella long, so tl;dr steps are
+        clean prices, get signals from `compute_signals()`, act on prev day signal, allocate holdings trades cash arrays,
+         execute daily loop, mark-to-market it, and combine the df and return
         """
-        self.cash = float(cash)
-        self.strategy = strategy.lower()
-        self.prices = prices.sort_index()
-        self.signals = signals.reindex_like(self.prices).fillna(0).astype(int)
+        # Clean data
+        # sort dates, drop duplicate dates, ensure float
+        P = (self.prices.sort_index()
+                         .loc[~self.prices.index.duplicated()]
+                         .astype(float))
 
-    def run(self):
-        tickers = list(self.prices.columns)
-        positions = {t: 0 for t in tickers}
-        cash_series = []
-        value_series = []
+        # child compute signals, basically 0 or 1
+        S_raw = (self.strategy.compute_signals(P)
+                               .reindex_like(P)
+                               .fillna(0)
+                               .clip(lower=-1, upper=1)
+                               .astype(int))
 
-        for dt in self.prices.index:
-            px_row = self.prices.loc[dt]
-            sig_row = self.signals.loc[dt]
+        # Act on previous day's signal if requested  (hard-coded: yes)
+        S_exec = S_raw.shift(1).fillna(0).astype(int)
 
-            # --- 1) Execute sells first (close all on -1)
-            for t in tickers:
-                sig, px = sig_row[t], px_row[t]
-                if sig == -1 and positions[t] > 0 and pd.notna(px):
-                    qty = positions[t]
-                    self.cash += qty * px
-                    positions[t] = 0
+        T, N = P.shape
+        Px = P.values
+        Sig = S_exec.values
 
-            # --- 2) Execute buys using shared cash
-            # Benchmark: allocate today's available cash equally across all +1 signals
-            if self.strategy == "benchmark":
-                shares = 100
-            else:
-                shares = 1
-        
-            for t in tickers:
-                sig, px = sig_row[t], px_row[t]
-                if sig == 1 and pd.notna(px) and px > 0:
-                    cost = px
-                    if self.cash >= cost:
-                        self.cash -= cost
-                        positions[t] += shares
+        holdings = np.zeros((T, N), dtype=int)
+        trades   = np.zeros((T, N), dtype=int)
+        cash     = np.zeros(T, dtype=float)
 
-            # --- 3) Mark-to-market total portfolio value (single equity curve)
-            port_val = self.cash + sum(positions[t] * px_row[t] for t in tickers if positions[t] > 0 and pd.notna(px_row[t]))
-            cash_series.append(self.cash)
-            value_series.append(port_val)
+        cash_t = float(self.initial_cash)
+        h_prev = np.zeros(N, dtype=int)
 
-        equity = pd.DataFrame(
-            {"cash": cash_series, "portfolio_value": value_series},
-            index=self.prices.index
+        # Loop over each day, so we can check cash constraints, holding constraints,per day caps,
+        # executions, mark-to-market
+        for t in range(T):
+            # desired change per ticker for day t in {-1,0,1}
+            desire = Sig[t].clip(-1, 1)
+
+            # cap per-day size  (hard-coded: 1 share per buy/sell)
+            pos = desire > 0
+            neg = desire < 0
+            desire[pos] = 1
+            desire[neg] = -1
+
+            # lower-bound desire by -h_prev for the negative side, dont let holdings go negative NO SHORTS
+            desire = np.maximum(desire, -h_prev)
+
+            px = Px[t].astype(float)
+
+            # Sells first (IN CASE WE NEED TO FREE UP CASH FOR OTHER BUYS)
+            sell_idx = np.flatnonzero(desire < 0)
+            if sell_idx.size:
+                qty = -desire[sell_idx]  # positive integers (only 0 or 1)
+                proceeds = (qty * px[sell_idx]).sum()
+                cash_t += proceeds
+                h_prev[sell_idx] -= qty
+                trades[t, sell_idx] = -qty  # negative trades recorded
+
+            #  Then buys
+            buy_idx = np.flatnonzero(desire > 0)
+            for j in buy_idx:
+                cost = px[j]
+                if cost <= cash_t:
+                    cash_t -= cost
+                    h_prev[j] += 1
+                    trades[t, j] = 1
+
+            holdings[t] = h_prev
+            cash[t] = cash_t
+
+        total_assets = cash + (holdings * Px).sum(axis=1)
+
+        out = pd.concat(
+            {
+                "Price":     P,
+                "RawSignal": pd.DataFrame(S_raw.values,  index=P.index, columns=P.columns),
+                "ExecSignal":pd.DataFrame(S_exec.values, index=P.index, columns=P.columns),
+                "Trades":    pd.DataFrame(trades,        index=P.index, columns=P.columns),
+                "Holdings":  pd.DataFrame(holdings,      index=P.index, columns=P.columns),
+            },
+            axis=1
         )
-
-        return {
-            "equity": equity,           
-            "final_cash": self.cash,
-            "final_positions": positions
-        }
-
-
-
-# Example usage
-prices = get_prices()
-sim = Simulator(
-    cash=1_000_000,          # starting cash
-    strategy="MACDStrategy",    # choose benchmark strategy
-    prices=prices,           # your price DataFrame
-    signals=MACDStrategy().compute_signals(prices)          # your signal DataFrame
-)
-
-results = sim.run()
-
-# Inspect results
-print("Final Cash:", results["final_cash"])
-print("Final Positions:", results["final_positions"])
-print(results["equity"].tail())       # portfolio value over time
-
-
-import matplotlib.pyplot as plt
-
-# results["equity"] has columns ["cash", "portfolio_value"]
-equity = results["equity"]
-
-plt.figure(figsize=(10, 6))
-plt.plot(equity.index, equity["portfolio_value"], label="Portfolio Value")
-plt.plot(equity.index, equity["cash"], label="Cash", linestyle="--")
-
-plt.title("Equity Curve")
-plt.xlabel("Date")
-plt.ylabel("Value ($) in Millions")
-plt.legend()
-plt.grid(True)
-plt.show()
+        out["Cash"] = cash
+        out["TotalAssets"] = total_assets
+        out.attrs["strategy_name"] = getattr(self.strategy, "name", type(self.strategy).__name__)
+        return out
