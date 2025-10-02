@@ -8,16 +8,13 @@ class BenchmarkStrategy(Strategy):
   """
   Buy just at beginning
   """
-  def __init__(self, min_points_per_ticker: int = 2500, buy_index: int = 0):
+  def __init__(self, buy_index: int = 0, name="Benchmark"):
         """
         min_points_per_ticker: filter tickers that have fewer points.
         buy_index: row index at which to place the '1' (default 0).
         """
-        self.min_points_per_ticker = min_points_per_ticker
         self.buy_index = buy_index
-        self.tickers = None  # list[str]
-        self.T = None        # time length
-        self.N = None        # number of tickers
+        super().__init__(name=name)
 
   def compute_signals(self, prices) -> pd.DataFrame:
 
